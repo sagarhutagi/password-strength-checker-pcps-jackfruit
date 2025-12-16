@@ -26,30 +26,50 @@ class PasswordUtils:
     @staticmethod
     def get_score(password):
         score = 0
-        feedback = []
+        # Restored the dictionary to hold both types of feedback
+        feedback = {'good': [], 'bad': []}
         
-        if len(password) >= 12: score += 3
-        elif len(password) >= 8: score += 2
-        else: feedback.append("Too short (use 8+ chars)")
+        # Length Check
+        if len(password) >= 12: 
+            score += 3
+            feedback['good'].append("Excellent length (12+ chars)")
+        elif len(password) >= 8: 
+            score += 2
+            feedback['good'].append("Good length")
+        else: 
+            feedback['bad'].append("Too short (use 8+ chars)")
 
-        if re.search(r'[a-z]', password): score += 1
-        else: feedback.append("Add lowercase letters")
+        # Pattern Checks
+        if re.search(r'[a-z]', password): 
+            score += 1
+            feedback['good'].append("Contains lowercase")
+        else: 
+            feedback['bad'].append("Add lowercase letters")
 
-        if re.search(r'[A-Z]', password): score += 1
-        else: feedback.append("Add uppercase letters")
+        if re.search(r'[A-Z]', password): 
+            score += 1
+            feedback['good'].append("Contains uppercase")
+        else: 
+            feedback['bad'].append("Add uppercase letters")
 
-        if re.search(r'[0-9]', password): score += 1
-        else: feedback.append("Add numbers")
+        if re.search(r'[0-9]', password): 
+            score += 1
+            feedback['good'].append("Contains numbers")
+        else: 
+            feedback['bad'].append("Add numbers")
 
-        if re.search(r'[\W_]', password): score += 2
-        else: feedback.append("Add special characters")
+        if re.search(r'[\W_]', password): 
+            score += 2
+            feedback['good'].append("Contains special characters")
+        else: 
+            feedback['bad'].append("Add special characters (!@#)")
 
         return min(8, score), feedback
 
 # --- SAGAR (UI Design) & PRADYUN (Integration) ---
 class AppWindow(wx.Frame):
     def __init__(self):
-        super().__init__(None, title='PESU Security Audit', size=(500, 600))
+        super().__init__(None, title='PESU Security Audit', size=(500, 650)) # Increased height slightly
         self.SetBackgroundColour(wx.Colour(250, 250, 250))
         self.init_ui()
         self.Center()
@@ -63,9 +83,8 @@ class AppWindow(wx.Frame):
         title.SetFont(wx.Font(16, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         vbox.Add(title, 0, wx.ALL | wx.CENTER, 20)
 
-        # Input Area (Horizontal Sizer for Text + Checkbox)
+        # Input Area
         self.hbox_pass = wx.BoxSizer(wx.HORIZONTAL)
-        
         self.txt_pass = wx.TextCtrl(panel, style=wx.TE_PASSWORD, size=(250, 30))
         self.hbox_pass.Add(self.txt_pass, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
         
@@ -84,31 +103,21 @@ class AppWindow(wx.Frame):
         self.lbl_status = wx.StaticText(panel, label="Ready")
         vbox.Add(self.lbl_status, 0, wx.ALL | wx.CENTER, 5)
 
-        # Gauge
+        # Gauge (Out of 8)
         self.gauge = wx.Gauge(panel, range=8, size=(400, 15))
         vbox.Add(self.gauge, 0, wx.ALL | wx.CENTER, 15)
 
-        # Feedback Area
-        self.txt_log = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(420, 200))
+        # Feedback Text Box
+        self.txt_log = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2, size=(420, 250))
         vbox.Add(self.txt_log, 1, wx.ALL | wx.CENTER, 10)
 
         panel.SetSizer(vbox)
 
     def on_toggle_show(self, event):
-        # Pradyun's Part: Handle toggling password visibility
-        current_val = self.txt_pass.GetValue()
-        current_style = self.txt_pass.GetWindowStyleFlag()
-        
-        # Determine new style
-        if self.chk_show.GetValue():
-            new_style = 0 # Normal text
-        else:
-            new_style = wx.TE_PASSWORD
-            
-        # Swap the widget to ensure it works on all OS (Windows/Linux/Mac)
-        new_txt = wx.TextCtrl(self.txt_pass.GetParent(), value=current_val, style=new_style, size=(250, 30))
-        
-        # Replace in sizer
+        # Pradyun: Password toggle logic
+        val = self.txt_pass.GetValue()
+        style = 0 if self.chk_show.GetValue() else wx.TE_PASSWORD
+        new_txt = wx.TextCtrl(self.txt_pass.GetParent(), value=val, style=style, size=(250, 30))
         self.hbox_pass.Replace(self.txt_pass, new_txt)
         self.txt_pass.Destroy()
         self.txt_pass = new_txt
@@ -121,7 +130,6 @@ class AppWindow(wx.Frame):
         self.lbl_status.SetLabel("Checking Database...")
         self.lbl_status.SetForegroundColour(wx.BLUE)
         self.btn_check.Disable()
-        
         threading.Thread(target=self.process_logic, args=(password,), daemon=True).start()
 
     def process_logic(self, password):
@@ -133,11 +141,13 @@ class AppWindow(wx.Frame):
         self.btn_check.Enable()
         self.txt_log.Clear()
         
+        # 1. API Results
         if breaches > 0:
-            score = 0
+            score = 0 # Fail immediately
             self.lbl_status.SetLabel(f"⚠️ LEAKED {breaches} TIMES")
             self.lbl_status.SetForegroundColour(wx.RED)
-            self.txt_log.AppendText(f"CRITICAL: Found in {breaches} data breaches.\n\n")
+            self.txt_log.SetDefaultStyle(wx.TextAttr(wx.RED))
+            self.txt_log.AppendText(f"CRITICAL WARNING: This password appears in {breaches} data breaches.\n\n")
         elif breaches == 0:
             self.lbl_status.SetLabel("✅ Safe (Not in public breaches)")
             self.lbl_status.SetForegroundColour(wx.Colour(0, 100, 0))
@@ -147,12 +157,20 @@ class AppWindow(wx.Frame):
 
         self.gauge.SetValue(score)
         
-        if feedback:
-            self.txt_log.AppendText("IMPROVEMENTS NEEDED:\n")
-            for item in feedback:
-                self.txt_log.AppendText(f"- {item}\n")
-        elif score >= 6:
-            self.txt_log.AppendText("✅ Excellent Password Structure!")
+        # 2. Display "Good Stuff" (Green)
+        if feedback['good']:
+            self.txt_log.SetDefaultStyle(wx.TextAttr(wx.Colour(0, 100, 0))) # Dark Green
+            self.txt_log.AppendText("✅ GOOD STUFF:\n")
+            for item in feedback['good']:
+                self.txt_log.AppendText(f" + {item}\n")
+            self.txt_log.AppendText("\n")
+
+        # 3. Display "Improvements" (Red/Orange)
+        if feedback['bad']:
+            self.txt_log.SetDefaultStyle(wx.TextAttr(wx.Colour(200, 0, 0))) # Dark Red
+            self.txt_log.AppendText("❌ IMPROVEMENTS:\n")
+            for item in feedback['bad']:
+                self.txt_log.AppendText(f" - {item}\n")
 
 if __name__ == '__main__':
     app = wx.App()
