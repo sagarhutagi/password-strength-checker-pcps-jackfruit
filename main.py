@@ -1,212 +1,161 @@
-import tkinter as tk
-from tkinter import ttk
-from tkinter import messagebox
-import re
+import wx
 import hashlib
 import requests
+import re
+import threading
 
-class PasswordProject:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("PESU Mini Project - Advanced Security Audit")
-        self.root.geometry("550x550")
-        self.root.resizable(False, False)
-
-        self.bg_color = "#f5f5f5"
-        self.root.configure(bg=self.bg_color)
-        
-        # --- UI LAYOUT ---
-        tk.Label(root, text="Password Strength & Breach Checker", 
-                 font=("Arial", 16, "bold"), bg=self.bg_color).pack(pady=15)
-
-        input_frame = tk.Frame(root, bg=self.bg_color)
-        input_frame.pack(pady=10)
-
-        tk.Label(input_frame, text="Enter Password:", bg=self.bg_color, font=("Arial", 11)).grid(row=0, column=0, padx=5)
-        
-        self.pass_entry = ttk.Entry(input_frame, show="*", font=("Arial", 11), width=25)
-        self.pass_entry.grid(row=0, column=1, padx=5)
-
-        self.show_var = tk.IntVar()
-        tk.Checkbutton(input_frame, text="Show", variable=self.show_var, 
-                       command=self.toggle_password, bg=self.bg_color).grid(row=0, column=2, padx=5)
-
-        ttk.Button(root, text="Analyze Security", command=self.run_analysis).pack(pady=10)
-
-        # Status Label for API
-        self.api_status = tk.Label(root, text="", bg=self.bg_color, fg="#666")
-        self.api_status.pack()
-
-        # Score & Progress
-        self.score_label = tk.Label(root, text="Rating: Waiting...", font=("Arial", 12, "bold"), bg=self.bg_color)
-        self.score_label.pack(pady=5)
-
-        self.progress = ttk.Progressbar(root, length=400, mode='determinate', maximum=8)
-        self.progress.pack(pady=5)
-
-        # Feedback Text Box
-        self.feedback_box = tk.Text(root, height=14, width=60, font=("Consolas", 10))
-        self.feedback_box.pack(pady=15, padx=20)
-        self.feedback_box.config(state="disabled")
-
-    def toggle_password(self):
-        if self.show_var.get():
-            self.pass_entry.config(show="")
-        else:
-            self.pass_entry.config(show="*")
-
-    def check_pwned_api(self, password):
-        """Checks if password exists in data breaches using k-Anonymity."""
+# --- SAI (API Security) ---
+class SecurityAPI:
+    @staticmethod
+    def check_breach(password):
         try:
-            # Hash password with SHA1
             sha1pass = hashlib.sha1(password.encode('utf-8')).hexdigest().upper()
             prefix, suffix = sha1pass[:5], sha1pass[5:]
-            
-            # Send only first 5 chars to API
             url = f"https://api.pwnedpasswords.com/range/{prefix}"
-            res = requests.get(url, timeout=2)
-            
+            res = requests.get(url, timeout=3)
             if res.status_code == 200:
                 hashes = (line.split(':') for line in res.text.splitlines())
                 for h, count in hashes:
-                    if h == suffix:
-                        return int(count) # Found match
-            return 0 # Not found
+                    if h == suffix: return int(count)
+            return 0
         except:
-            return -1 # Internet error
+            return -1
 
-    def run_analysis(self):
-        password = self.pass_entry.get()
-        if not password:
-            messagebox.showwarning("Error", "Enter a password first.")
-            return
-
-        self.api_status.config(text="Checking database...", fg="blue")
-        self.root.update()
-
-        # --- 1. YOUR ORIGINAL LOGIC ---
+# --- SACHCHIT (Core Logic) ---
+class PasswordUtils:
+    @staticmethod
+    def get_score(password):
         score = 0
-        feedback = {'positive': [], 'negative': []}
-
-        # Length
-        length = len(password)
-        if length >= 12:
-            score += 3
-            feedback['positive'].append("Excellent length (12+ chars)")
-        elif length >= 8:
-            score += 2
-            feedback['positive'].append("Good length (8-11 chars)")
-        else:
-            feedback['negative'].append("Too short (aim for 8+ chars)")
-
-        # Regex Checks
-        if re.search(r'[a-z]', password):
-            score += 1
-            feedback['positive'].append("Contains lowercase")
-        else:
-            feedback['negative'].append("Add lowercase letters")
-
-        if re.search(r'[A-Z]', password):
-            score += 1
-            feedback['positive'].append("Contains uppercase")
-        else:
-            feedback['negative'].append("Add uppercase letters")
-
-        if re.search(r'[0-9]', password):
-            score += 1
-            feedback['positive'].append("Contains numbers")
-        else:
-            feedback['negative'].append("Add numbers")
-
-        if re.search(r'[\W_]', password):
-            score += 2
-            feedback['positive'].append("Contains special characters")
-        else:
-            feedback['negative'].append("Add special characters (!@#)")
-
-        # Sequence Check (abc, 123)
-        found_seq = False
-        for i in range(len(password) - 2):
-            p1, p2, p3 = password[i:i+3]
-            if (p1.isalpha() and p2.isalpha() and p3.isalpha()) or \
-               (p1.isdigit() and p2.isdigit() and p3.isdigit()):
-                if (ord(p2) == ord(p1) + 1 and ord(p3) == ord(p2) + 1) or \
-                   (ord(p2) == ord(p1) - 1 and ord(p3) == ord(p2) - 1):
-                    score = max(0, score - 2)
-                    if not found_seq:
-                        feedback['negative'].append(f"Avoid sequences like '{p1}{p2}{p3}'")
-                        found_seq = True
-
-        # Repetition Check (aaa)
-        found_rep = False
-        for i in range(len(password) - 2):
-            if password[i] == password[i+1] == password[i+2]:
-                score = max(0, score - 2)
-                if not found_rep:
-                    feedback['negative'].append(f"Avoid repeating characters like '{password[i]*3}'")
-                    found_rep = True
+        feedback = []
         
-        # --- 2. API CHECK (The Override) ---
-        breach_count = self.check_pwned_api(password)
-        is_leaked = False
+        if len(password) >= 12: score += 3
+        elif len(password) >= 8: score += 2
+        else: feedback.append("Too short (use 8+ chars)")
+
+        if re.search(r'[a-z]', password): score += 1
+        else: feedback.append("Add lowercase letters")
+
+        if re.search(r'[A-Z]', password): score += 1
+        else: feedback.append("Add uppercase letters")
+
+        if re.search(r'[0-9]', password): score += 1
+        else: feedback.append("Add numbers")
+
+        if re.search(r'[\W_]', password): score += 2
+        else: feedback.append("Add special characters")
+
+        return min(8, score), feedback
+
+# --- SAGAR (UI Design) & PRADYUN (Integration) ---
+class AppWindow(wx.Frame):
+    def __init__(self):
+        super().__init__(None, title='PESU Security Audit', size=(500, 600))
+        self.SetBackgroundColour(wx.Colour(250, 250, 250))
+        self.init_ui()
+        self.Center()
+
+    def init_ui(self):
+        panel = wx.Panel(self)
+        vbox = wx.BoxSizer(wx.VERTICAL)
         
-        if breach_count > 0:
-            is_leaked = True
-            score = 0 # Force score to 0
-            self.api_status.config(text=f"⚠️ FOUND IN {breach_count} DATA BREACHES", fg="red")
-        elif breach_count == 0:
-            self.api_status.config(text="✅ Not found in public breaches", fg="green")
-            feedback['positive'].append("Clean: Not found in hack databases")
-        else:
-            self.api_status.config(text="⚠️ Internet Error - Skipped API check", fg="#cc7a00")
+        # Header
+        title = wx.StaticText(panel, label="Password & Breach Checker")
+        title.SetFont(wx.Font(16, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        vbox.Add(title, 0, wx.ALL | wx.CENTER, 20)
 
-        # --- 3. FINAL RESULTS ---
-        score = max(0, score) # prevent negative
+        # Input Area (Horizontal Sizer for Text + Checkbox)
+        self.hbox_pass = wx.BoxSizer(wx.HORIZONTAL)
         
-        if is_leaked:
-            level = "COMPROMISED"
-            color = "red"
-        elif score <= 2:
-            level = "Very Weak"
-            color = "red"
-        elif score <= 4:
-            level = "Weak"
-            color = "#ff9900"
-        elif score <= 6:
-            level = "Medium"
-            color = "#cccc00"
-        elif score <= 7:
-            level = "Strong"
-            color = "blue"
+        self.txt_pass = wx.TextCtrl(panel, style=wx.TE_PASSWORD, size=(250, 30))
+        self.hbox_pass.Add(self.txt_pass, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+        
+        self.chk_show = wx.CheckBox(panel, label="Show")
+        self.chk_show.Bind(wx.EVT_CHECKBOX, self.on_toggle_show)
+        self.hbox_pass.Add(self.chk_show, 0, wx.ALIGN_CENTER_VERTICAL)
+        
+        vbox.Add(self.hbox_pass, 0, wx.ALIGN_CENTER | wx.BOTTOM, 15)
+
+        # Button
+        self.btn_check = wx.Button(panel, label="Analyze Security", size=(160, 40))
+        self.btn_check.Bind(wx.EVT_BUTTON, self.on_check)
+        vbox.Add(self.btn_check, 0, wx.ALL | wx.CENTER, 10)
+
+        # Status Label
+        self.lbl_status = wx.StaticText(panel, label="Ready")
+        vbox.Add(self.lbl_status, 0, wx.ALL | wx.CENTER, 5)
+
+        # Gauge
+        self.gauge = wx.Gauge(panel, range=8, size=(400, 15))
+        vbox.Add(self.gauge, 0, wx.ALL | wx.CENTER, 15)
+
+        # Feedback Area
+        self.txt_log = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(420, 200))
+        vbox.Add(self.txt_log, 1, wx.ALL | wx.CENTER, 10)
+
+        panel.SetSizer(vbox)
+
+    def on_toggle_show(self, event):
+        # Pradyun's Part: Handle toggling password visibility
+        current_val = self.txt_pass.GetValue()
+        current_style = self.txt_pass.GetWindowStyleFlag()
+        
+        # Determine new style
+        if self.chk_show.GetValue():
+            new_style = 0 # Normal text
         else:
-            level = "Very Strong"
-            color = "green"
-
-        self.score_label.config(text=f"Rating: {level} ({score}/8)", fg=color)
-        self.progress['value'] = score
-
-        self.feedback_box.config(state="normal")
-        self.feedback_box.delete(1.0, tk.END)
-
-        if is_leaked:
-            self.feedback_box.insert(tk.END, "🚨 CRITICAL WARNING 🚨\n", "danger")
-            self.feedback_box.insert(tk.END, f"This password has been exposed {breach_count} times.\n")
-            self.feedback_box.insert(tk.END, "Hackers have this password. DO NOT USE IT.\n\n")
-
-        if feedback['positive']:
-            self.feedback_box.insert(tk.END, "✅ GOOD STUFF:\n")
-            for item in feedback['positive']:
-                self.feedback_box.insert(tk.END, f"  - {item}\n")
-            self.feedback_box.insert(tk.END, "\n")
+            new_style = wx.TE_PASSWORD
             
-        if feedback['negative']:
-            self.feedback_box.insert(tk.END, "❌ IMPROVEMENTS:\n")
-            for item in feedback['negative']:
-                self.feedback_box.insert(tk.END, f"  - {item}\n")
+        # Swap the widget to ensure it works on all OS (Windows/Linux/Mac)
+        new_txt = wx.TextCtrl(self.txt_pass.GetParent(), value=current_val, style=new_style, size=(250, 30))
+        
+        # Replace in sizer
+        self.hbox_pass.Replace(self.txt_pass, new_txt)
+        self.txt_pass.Destroy()
+        self.txt_pass = new_txt
+        self.hbox_pass.Layout()
 
-        self.feedback_box.config(state="disabled")
+    def on_check(self, event):
+        password = self.txt_pass.GetValue()
+        if not password: return
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = PasswordProject(root)
-    root.mainloop()
+        self.lbl_status.SetLabel("Checking Database...")
+        self.lbl_status.SetForegroundColour(wx.BLUE)
+        self.btn_check.Disable()
+        
+        threading.Thread(target=self.process_logic, args=(password,), daemon=True).start()
+
+    def process_logic(self, password):
+        breaches = SecurityAPI.check_breach(password)
+        score, feedback = PasswordUtils.get_score(password)
+        wx.CallAfter(self.update_ui, score, feedback, breaches)
+
+    def update_ui(self, score, feedback, breaches):
+        self.btn_check.Enable()
+        self.txt_log.Clear()
+        
+        if breaches > 0:
+            score = 0
+            self.lbl_status.SetLabel(f"⚠️ LEAKED {breaches} TIMES")
+            self.lbl_status.SetForegroundColour(wx.RED)
+            self.txt_log.AppendText(f"CRITICAL: Found in {breaches} data breaches.\n\n")
+        elif breaches == 0:
+            self.lbl_status.SetLabel("✅ Safe (Not in public breaches)")
+            self.lbl_status.SetForegroundColour(wx.Colour(0, 100, 0))
+        else:
+            self.lbl_status.SetLabel("⚠️ API Offline")
+            self.lbl_status.SetForegroundColour(wx.Colour(200, 100, 0))
+
+        self.gauge.SetValue(score)
+        
+        if feedback:
+            self.txt_log.AppendText("IMPROVEMENTS NEEDED:\n")
+            for item in feedback:
+                self.txt_log.AppendText(f"- {item}\n")
+        elif score >= 6:
+            self.txt_log.AppendText("✅ Excellent Password Structure!")
+
+if __name__ == '__main__':
+    app = wx.App()
+    frame = AppWindow()
+    frame.Show()
+    app.MainLoop()
