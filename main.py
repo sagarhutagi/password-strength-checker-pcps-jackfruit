@@ -26,7 +26,6 @@ class PasswordUtils:
     @staticmethod
     def get_score(password):
         score = 0
-        # Restored the dictionary to hold both types of feedback
         feedback = {'good': [], 'bad': []}
         
         # Length Check
@@ -66,10 +65,10 @@ class PasswordUtils:
 
         return min(8, score), feedback
 
-# --- SAGAR (UI Design) & PRADYUN (Integration) ---
+# --- SAGAR ---
 class AppWindow(wx.Frame):
     def __init__(self):
-        super().__init__(None, title='PESU Security Audit', size=(500, 650)) # Increased height slightly
+        super().__init__(None, title='PESU Security Audit', size=(500, 650))
         self.SetBackgroundColour(wx.Colour(250, 250, 250))
         self.init_ui()
         self.Center()
@@ -103,6 +102,11 @@ class AppWindow(wx.Frame):
         self.lbl_status = wx.StaticText(panel, label="Ready")
         vbox.Add(self.lbl_status, 0, wx.ALL | wx.CENTER, 5)
 
+        # Score Label (ADDED HERE)
+        self.lbl_score = wx.StaticText(panel, label="Rating: Waiting...")
+        self.lbl_score.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        vbox.Add(self.lbl_score, 0, wx.ALL | wx.CENTER, 5)
+
         # Gauge (Out of 8)
         self.gauge = wx.Gauge(panel, range=8, size=(400, 15))
         vbox.Add(self.gauge, 0, wx.ALL | wx.CENTER, 15)
@@ -114,7 +118,6 @@ class AppWindow(wx.Frame):
         panel.SetSizer(vbox)
 
     def on_toggle_show(self, event):
-        # Pradyun: Password toggle logic
         val = self.txt_pass.GetValue()
         style = 0 if self.chk_show.GetValue() else wx.TE_PASSWORD
         new_txt = wx.TextCtrl(self.txt_pass.GetParent(), value=val, style=style, size=(250, 30))
@@ -122,6 +125,8 @@ class AppWindow(wx.Frame):
         self.txt_pass.Destroy()
         self.txt_pass = new_txt
         self.hbox_pass.Layout()
+
+# --- PRADYUN ---
 
     def on_check(self, event):
         password = self.txt_pass.GetValue()
@@ -156,8 +161,17 @@ class AppWindow(wx.Frame):
             self.lbl_status.SetForegroundColour(wx.Colour(200, 100, 0))
 
         self.gauge.SetValue(score)
+
+        # 2. Update Score Text (ADDED HERE)
+        if score <= 2: rating, color = "Very Weak", wx.RED
+        elif score <= 4: rating, color = "Weak", wx.Colour(255, 140, 0) # Orange
+        elif score <= 6: rating, color = "Medium", wx.Colour(200, 200, 0) # Yellow
+        else: rating, color = "Strong", wx.Colour(0, 128, 0) # Green
+
+        self.lbl_score.SetLabel(f"Rating: {rating} ({score}/8)")
+        self.lbl_score.SetForegroundColour(color)
         
-        # 2. Display "Good Stuff" (Green)
+        # 3. Display "Good Stuff" (Green)
         if feedback['good']:
             self.txt_log.SetDefaultStyle(wx.TextAttr(wx.Colour(0, 100, 0))) # Dark Green
             self.txt_log.AppendText("✅ GOOD STUFF:\n")
@@ -165,7 +179,7 @@ class AppWindow(wx.Frame):
                 self.txt_log.AppendText(f" + {item}\n")
             self.txt_log.AppendText("\n")
 
-        # 3. Display "Improvements" (Red/Orange)
+        # 4. Display "Improvements" (Red/Orange)
         if feedback['bad']:
             self.txt_log.SetDefaultStyle(wx.TextAttr(wx.Colour(200, 0, 0))) # Dark Red
             self.txt_log.AppendText("❌ IMPROVEMENTS:\n")
